@@ -135,12 +135,21 @@ def dispatch_processing_job(user_id: str, source_type: str, source_id: str):
 
 ## 4. Live Voice (RTC) Phasing
 
-| Phase | MAU band | Solution | Notes |
-|-------|----------|----------|-------|
-| MVP | 0 – ~50k | **Agora RTC** (voice transport only) | 10k free min/mo; no cloud recording, no RTT |
-| Scale | ~50k+ | **Self-hosted LiveKit** | Migrate when Agora bill consistently > ~$300/mo |
+| Phase | MAU band | Solution | Recording | Notes |
+|-------|----------|----------|-----------|-------|
+| MVP | 0 – ~50k | **Agora RTC** | Agora Individual Cloud Recording → R2 | 10k free RTC min/mo; recording ~$1.49/1000 min (audio-only) |
+| Scale | ~50k+ | **Self-hosted LiveKit** | LiveKit Egress API → R2 | Migrate when Agora bill consistently > ~$300/mo |
 
-Agora/LiveKit handles **Layer 1: live transport only**. Recording, grading, and moderation use R2 + worker pipeline.
+### Why server-side recording
+Client-side recording via `expo-av` + post-match upload is unreliable over mobile networks for 3–5 min files: app close, network drop, or dead battery means no audio → no feedback → no ELO update. **All live match audio is captured server-side.** The audio already traverses Agora's SD-RTN; recording it there adds no latency and eliminates an entire failure class.
+
+**Recording is only started for non-`metadata_only` matches** (`should_record()` checks subscription tier + daily/monthly cap before the match goes active). Free users on their 2nd+ match of the day get `metadata_only` — no recording, no cost.
+
+### LiveKit migration recording path
+Self-hosted LiveKit uses [LiveKit Egress](https://docs.livekit.io/egress/overview/) (`TrackEgress` for per-player audio). Output goes directly to R2. Webhook pattern is identical to Agora — pipeline dispatch remains unchanged. **Client code requires zero changes on migration.**
+
+### Recording cost estimate (@ 100k MAU)
+~325k non-metadata_only matches/mo × 5 min × 2 players = ~3.25M recorded min/mo × $1.49/1000 = **~$4,850/mo**. Included in opex estimates.
 
 ---
 

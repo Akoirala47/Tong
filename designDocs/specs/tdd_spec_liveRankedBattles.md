@@ -11,12 +11,14 @@ The core PvP product: real-time 1v1 voice-call battles with skill-based matchmak
 
 ### Match Lifecycle
 ```
-Queue Entry → Matchmaking → Match Found → Pre-Match Lobby (prompt reveal) → Live Battle → Match Concluded → Audio Upload → Post-Match Processing → Result Delivered
+Queue Entry → Matchmaking → Match Found → Pre-Match Lobby (prompt reveal) → Live Battle
+→ Server starts Agora Individual Cloud Recording (per-player, non-metadata_only matches only)
+→ Match Concluded → Agora pushes audio directly to R2 → Post-Match Processing → Result Delivered
 ```
 
 - **Match Duration:** 3 minutes (configurable per tier)
 - **Queue Timeout:** 5 minutes; if no match found, player is notified and removed from queue
-- **Voice Infrastructure:** Agora.io RTC channel per match (**voice transport only** — no cloud recording, no RTT). Scale path: self-hosted LiveKit at ~50k MAU. See [[tdd_spec_computeEconomics.md]].
+- **Voice Infrastructure:** Agora.io RTC channel per match (voice transport + Individual Cloud Recording for non-metadata_only matches). Scale path: **self-hosted LiveKit at ~50k MAU**, which uses the [LiveKit Egress API](https://docs.livekit.io/egress/overview/) for server-side recording — same pattern, no client changes needed. See [[tdd_spec_computeEconomics.md]].
 
 ### Data Models
 
@@ -40,11 +42,16 @@ CREATE TABLE live_matches (
 
 -- live_match_recordings
 CREATE TABLE live_match_recordings (
-    id              UUID PRIMARY KEY DEFAULT gen_random_uuid(),
-    match_id        UUID REFERENCES live_matches(id),
-    player_id       UUID REFERENCES users(id),
-    audio_url       TEXT,           -- R2 URL uploaded post-match
-    uploaded_at     TIMESTAMPTZ
+    id                   UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+    match_id             UUID REFERENCES live_matches(id),
+    player_id            UUID REFERENCES users(id),
+    agora_resource_id    TEXT,       -- Agora Cloud Recording resourceId (null if metadata_only)
+    agora_sid            TEXT,       -- Agora recording session ID
+    audio_url            TEXT,       -- R2 URL populated when Agora finishes uploading
+    recording_status     TEXT NOT NULL DEFAULT 'not_required',
+                                    -- 'not_required' | 'recording' | 'uploaded' | 'failed'
+    started_at           TIMESTAMPTZ,
+    uploaded_at          TIMESTAMPTZ
 );
 
 -- live_match_results
@@ -69,8 +76,8 @@ CREATE TABLE live_match_results (
 | GET | `/matches/live/{match_id}` | Bearer | Get match details including prompt and Agora tokens |
 | POST | `/matches/live/{match_id}/ready` | Bearer | Signal player is ready in lobby |
 | POST | `/matches/live/{match_id}/conclude` | Bearer | Signal match end (both players must call, or server auto-concludes on timer) |
-| POST | `/matches/live/{match_id}/upload` | Bearer | Pre-signed R2 URL for audio upload |
 | GET | `/matches/live/{match_id}/result` | Bearer | Poll for post-match result |
+| POST | `/webhooks/agora/recording` | Agora signature | Agora calls this when recording upload to R2 is complete; triggers pipeline dispatch |
 
 ### Queue & Matchmaking (Real-Time)
 - Queue state managed in Redis Sorted Set: `queue:{language}` → `{user_id: mmr_score}`
@@ -82,13 +89,38 @@ CREATE TABLE live_match_results (
 - Each match gets a unique Agora channel name: `match_{match_id}`
 - Server generates short-lived tokens (1-hour expiry) using Agora Token Builder SDK
 - Client joins channel using the token; Agora enforces token validity
-- After match concludes, channel is destroyed server-side via Agora REST API
-- **No Agora Cloud Recording or RTT** — moderation and grading use R2 uploads + worker pipeline (M-08/M-10)
+- After match concludes, server stops recording and destroys the channel via Agora REST API
+- No Agora RTT — moderation and grading run post-match on the recorded audio (M-08/M-10)
 
-### Client-Side Recording
-- While in the Agora channel, client records the full session locally using `expo-av`
-- After `conclude` signal, client uploads the raw audio to R2 via pre-signed URL
-- Upload triggers tiered post-match Celery dispatch via `resolve_pipeline_tier()` (see [[tdd_spec_postMatchPipeline.md]])
+### Server-Side Recording (Agora Individual Cloud Recording)
+
+Client uploads are unreliable over 4G/3G for 3–5 min audio files — upload failure means no feedback and no ELO update, which is unacceptable for a competitive app. **Recording is handled entirely server-side via Agora's Individual Cloud Recording REST API.** The audio is already flowing through Agora's SD-RTN; we just tell Agora to save each player's stream to R2.
+
+**Recording decision at match start:**
+```python
+def should_record(user_id: str) -> bool:
+    """Only record if this player's pipeline will need audio (not metadata_only)."""
+    sub = subscription_tier(user_id)
+    if sub in ("pro", "elite"):
+        return True
+    if sub == "plus":
+        return not monthly_coaching_cap_reached(user_id)
+    # free: record only if they haven't used their daily lite yet
+    return not daily_lite_cap_reached(user_id)
+```
+
+**Flow:**
+1. Both players tap Ready → server calls `should_record()` per player
+2. For players needing audio: server calls Agora `/acquire` → `/start` (Individual mode, one UID per player)
+3. Match runs; Agora records each player's stream independently
+4. `POST /matches/live/{id}/conclude` → server calls Agora `/stop` per recording resource
+5. Agora uploads audio files directly to Cloudflare R2 (S3-compatible credentials)
+6. Agora calls `POST /webhooks/agora/recording` when each file lands in R2
+7. Webhook handler verifies Agora signature, updates `live_match_recordings.audio_url`, dispatches Celery pipeline job
+8. For `metadata_only` players: pipeline dispatches immediately on conclude (no audio needed)
+
+**LiveKit migration note (at ~50k MAU):**
+When migrating from Agora to self-hosted LiveKit, replace Agora Cloud Recording with [LiveKit Egress](https://docs.livekit.io/egress/overview/) (`RoomCompositeEgress` or `TrackEgress`). The recording flow is identical from the pipeline's perspective — audio lands in R2, webhook dispatches the job. Client code requires no changes.
 
 ---
 
@@ -108,6 +140,12 @@ def test_queue_entry_stores_mmr_in_sorted_set():
 def test_queue_removal_cleans_up_sorted_set():
 def test_match_found_requires_both_players_within_150_mmr():
 def test_queue_timeout_removes_player_after_5_minutes():
+def test_should_record_returns_true_for_pro_user():
+def test_should_record_returns_true_for_free_user_within_daily_cap():
+def test_should_record_returns_false_for_free_user_over_daily_cap():
+def test_should_record_returns_false_for_plus_user_over_monthly_cap():
+def test_agora_recording_webhook_signature_validated():
+def test_recording_webhook_updates_audio_url_and_dispatches_pipeline():
 ```
 
 ### Integration Tests
@@ -120,9 +158,12 @@ def test_matchmaking_pairs_two_players_within_mmr_range():
 def test_matchmaking_creates_live_match_record():
 def test_websocket_delivers_match_found_event_to_both_players():
 def test_both_players_ready_transitions_match_to_active():
-def test_conclude_from_both_players_triggers_processing():
+def test_conclude_from_both_players_triggers_recording_stop_and_pipeline():
 def test_conclude_on_timer_expiry_auto_concludes_match():
-def test_upload_url_is_scoped_to_correct_player_and_match():
+def test_agora_recording_started_on_ready_for_non_metadata_players():
+def test_agora_recording_not_started_for_metadata_only_players():
+def test_recording_webhook_dispatches_celery_pipeline_job():
+def test_metadata_only_player_pipeline_dispatched_immediately_on_conclude():
 def test_result_endpoint_returns_404_while_processing():
 def test_result_endpoint_returns_data_after_grading_complete():
 ```
@@ -137,8 +178,8 @@ Scenario: Full live match flow
   And both tap Ready to enter the live call
   And they can hear each other via Agora voice channel
   And after 3 minutes the match concludes automatically
-  And both are prompted to upload their recordings
-  And they see a "Processing..." screen while grading runs
+  And the server stops the Agora recording and Agora pushes audio to R2
+  And they see a "Processing..." screen while grading runs (no upload step)
   And a result screen with ELO change appears within 60 seconds
 
 Scenario: Queue timeout

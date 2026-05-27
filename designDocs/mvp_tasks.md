@@ -147,8 +147,9 @@
 - [ ] **A-M06-05** — `POST /matches/live/queue` + `DELETE /matches/live/queue` — Redis sorted set management
 - [ ] **A-M06-06** — Celery beat (2s): scan queue, pair within MMR window, create match, generate Agora tokens, push to both WebSockets
 - [ ] **A-M06-07** — `GET /matches/live/{id}`, `POST /matches/live/{id}/ready`, `POST /matches/live/{id}/conclude`
-- [ ] **A-M06-08** — `POST /matches/live/{id}/upload` — pre-signed R2 URL for audio upload
-- [ ] **A-M06-10** — Integration tests: queue entry, matchmaking pairing, full match state machine
+- [ ] **A-M06-08** — Agora Individual Cloud Recording integration: on both-players-ready, call `should_record(user_id)` per player; for players needing audio call Agora `/acquire` + `/individual/start` with R2 credentials; on conclude call Agora `/stop`; store `agora_resource_id` + `agora_sid` in `live_match_recordings`
+- [ ] **A-M06-09** — `POST /webhooks/agora/recording` — validate Agora webhook signature; on `uploaded_to_cloud` event update `live_match_recordings.audio_url` + `recording_status='uploaded'`; dispatch Celery pipeline job; for `metadata_only` players dispatch pipeline immediately on conclude (no audio needed)
+- [ ] **A-M06-10** — Integration tests: queue entry, matchmaking pairing, full match state machine, recording started for non-metadata players, pipeline dispatched on webhook
 
 > **🔒 Gate M-06:** Dev B integrates after A-M06-04 + A-M06-07 are deployed (Dev B can use a local Agora test channel before this).
 
@@ -157,9 +158,9 @@
 - [ ] **B-M06-02** — Queue screen: "Finding opponent…" with MMR window expansion indicator + cancel button
 - [ ] **B-M06-03** — WebSocket client: connect on queue entry, handle "match found" event, navigate to lobby
 - [ ] **B-M06-04** — Lobby screen: prompt reveal, both player profiles/ranks, Ready button
-- [ ] **B-M06-05** — Live battle screen: Agora voice call UI (mute toggle, match timer, end match button); local audio recording in parallel via `expo-av`
-- [ ] **B-M06-06** — Post-battle upload screen: compress + upload recording to pre-signed R2 URL; "Uploading…" → "Analyzing…" state
-- [ ] **B-M06-07** — E2E test: two simulators queue, match, conclude, upload, reach result screen
+- [ ] **B-M06-05** — Live battle screen: Agora voice call UI (mute toggle, match timer, end match button); no local recording needed — Agora records server-side
+- [ ] **B-M06-06** — Post-match transition: on conclude, navigate directly to "Analyzing…" state (no upload screen; recording happens server-side); poll `GET /matches/live/{id}/result` every 3s
+- [ ] **B-M06-07** — E2E test: two simulators queue, match, conclude, reach result screen (no upload step)
 
 ---
 
@@ -261,7 +262,8 @@
 
 - [ ] End-to-end flow validated by both devs together: register → solo lesson → boss battle → async duel → live match → result screen
 - [ ] All unit + integration tests green on CI
-- [ ] Post-match toxicity scan tested on real uploaded audio (lite pipeline)
+- [ ] Agora Cloud Recording tested end-to-end: match concludes → Agora webhook received → audio URL populated in `live_match_recordings` → pipeline dispatched
+- [ ] Post-match toxicity scan tested on Agora-recorded audio (lite pipeline)
 - [ ] Free-tier gate validated: second match of the day returns ELO-only metadata result
 - [ ] Free async duel validated: metadata-only grading (ELO/win-loss only)
 - [ ] Pro/Elite pipeline paths stubbed (resolver returns correct tier; full Qwen + Elite worker implementation ships in P-07)

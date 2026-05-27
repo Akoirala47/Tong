@@ -45,7 +45,11 @@
 
 ### Real-Time Voice Infrastructure: Agora.io RTC SDK (MVP) → LiveKit self-host (scale)
 
-**Justification:** Live ranked battles require sub-300ms latency voice calls with global routing, NAT traversal, and connection resilience. Agora's managed SD-RTN handles this at MVP with 10k free minutes/mo. **Voice transport only** — no Agora Cloud Recording or RTT (moderation and grading use R2 + worker pipeline). `react-native-agora` is the mobile SDK; server-side tokens prevent unauthorized channel join. **Scale path (~50k MAU):** migrate to self-hosted LiveKit when Agora bill consistently exceeds ~$300/mo. See [[specs/tdd_spec_computeEconomics.md]].
+**Justification:** Live ranked battles require sub-300ms latency voice calls with global routing, NAT traversal, and connection resilience. Agora's managed SD-RTN handles this at MVP with 10k free minutes/mo. `react-native-agora` is the mobile SDK; server-side tokens prevent unauthorized channel join.
+
+**Recording:** All live match audio is captured server-side via **Agora Individual Cloud Recording** (REST API) — no client upload. The match audio is already flowing through Agora's network; recording it server-side eliminates the reliability risk of mobile file uploads over 4G/3G. Recording is only triggered for non-`metadata_only` matches. Audio lands directly in Cloudflare R2 via Agora webhook; Celery pipeline is dispatched on receipt. No Agora RTT (moderation runs post-match on the transcript).
+
+**Scale path (~50k MAU):** Migrate to **self-hosted LiveKit** when Agora bill consistently exceeds ~$300/mo. LiveKit uses the [Egress API](https://docs.livekit.io/egress/overview/) (`TrackEgress`) for per-player recording to R2 — same webhook pattern as Agora, zero client changes required on migration. See [[specs/tdd_spec_computeEconomics.md]].
 
 ### Worker Pipeline Tiering
 
@@ -75,7 +79,7 @@ Database:       PostgreSQL (+ pgvector extension)
 Cache/Queue:    Redis (Celery broker + session + matchmaking state)
 Workers:        Celery (Python) — faster-whisper (lite+elite), vLLM/Qwen3-ASR (pro), wav2vec2, SpeechBrain, parselmouth, DeepSeek
                 standard queue (CPU/lite) | qwen queue (GPU/pro) | elite_gpu queue (GPU/elite)
-Live Voice:     Agora.io RTC SDK (MVP) → LiveKit self-host (scale)
+Live Voice:     Agora.io RTC SDK + Individual Cloud Recording (MVP) → LiveKit + Egress API (scale)
 Monetization:   Plus $9.99 / Pro $15.99 / Elite $19.99 — see tdd_spec_computeEconomics.md
 TTS:            Fish Audio S2
 LLM:            DeepSeek-V4-Flash

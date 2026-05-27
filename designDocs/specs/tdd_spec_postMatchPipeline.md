@@ -27,8 +27,10 @@ Before dispatch, call `resolve_pipeline_tier(user_id, source_type)` (see [[tdd_s
 ```
 [Match/Duel Concluded]
       │
-      ▼
-[Client uploads audio → Cloudflare R2]  (live match only; async per-move uploads)
+      ├─ Live match: Agora Cloud Recording → R2 (server-side, triggered by /webhooks/agora/recording)
+      │              metadata_only players: pipeline dispatched immediately, no audio needed
+      │
+      ├─ Async duel move: client uploads short clip → R2 pre-signed URL (90s max, client upload fine)
       │
       ▼
 [API: resolve_pipeline_tier() per player → dispatch Celery task]

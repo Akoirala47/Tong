@@ -40,7 +40,7 @@ The main event. Fluency tested under true, real-time competitive pressure.
 
 Tong acts as a 24/7 coach and analyst. To guarantee zero network or processing latency during live competitive matches, all intensive linguistic grading is handled asynchronously after the match concludes.
 
-* **Post-Match Breakdown (VOD Review):** Once a match or async puzzle ends, local audio recordings are compressed and processed by backend worker nodes. Players receive a granular breakdown calculating words-per-minute (WPM), pinpointing explicit pronunciation inaccuracies, mapping filler words (*um*, *uh*), and offering structural syntax corrections.
+* **Post-Match Breakdown (VOD Review):** Once a match or async puzzle ends, audio is processed by backend worker nodes. For live matches, audio is captured server-side by Agora's Individual Cloud Recording (no client upload — reliable regardless of network conditions or app state). For async duel moves, short clips are uploaded client-side. Players receive a granular breakdown: WPM, pronunciation inaccuracies, filler words, and syntax corrections.
 * **Asynchronous Match Grading:** The AI referee evaluates the complete match transcript post-game, scoring prompt adherence, conversational logic, and vocabulary complexity to determine the match outcome and calculate final ELO adjustments.
 * **Targeted Weakness Ingestion:** Any specific word, phrase, or slang term a player mispronounces or misuses during a PvP match is automatically flagged by the post-match referee and injected directly into their *Solo Grind Intelligent Flashcards*.
 
@@ -74,7 +74,7 @@ Scenarios in both Async Duels and Live PvP are generated Just-In-Time (JIT) via 
 
 * **Toxicity Moderation:** Post-match transcript scanning (keyword filter + ML classifier) on Whisper output — no live STT infrastructure required at MVP. Warnings and bans enforced at queue entry; mid-match auto-mute deferred to v2.
 * **The Post-Match Worker Pipeline (tiered):**
-1. **Storage:** When a match concludes, client applications upload recorded audio to **Cloudflare R2**.
+1. **Storage:** For live matches, Agora Individual Cloud Recording captures each player's audio server-side and pushes it directly to **Cloudflare R2** — no client upload. For async duel moves (max 90s clips), clients upload directly to R2 via pre-signed URL.
 2. **Queueing:** Upload triggers a tiered Celery job (`metadata_only`, `lite`, `full`, `elite`, or `elite_phoneme`) based on user subscription and daily caps.
 3. **Python Worker Stack:**
    * **Free — lite (1/day):** `whisper-small` via faster-whisper CPU → short DeepSeek grading → ELO + brief feedback + flashcard injection.
