@@ -16,7 +16,7 @@ Queue Entry → Matchmaking → Match Found → Pre-Match Lobby (prompt reveal) 
 
 - **Match Duration:** 3 minutes (configurable per tier)
 - **Queue Timeout:** 5 minutes; if no match found, player is notified and removed from queue
-- **Voice Infrastructure:** Agora.io RTC channel per match
+- **Voice Infrastructure:** Agora.io RTC channel per match (**voice transport only** — no cloud recording, no RTT). Scale path: self-hosted LiveKit at ~50k MAU. See [[tdd_spec_computeEconomics.md]].
 
 ### Data Models
 
@@ -83,11 +83,12 @@ CREATE TABLE live_match_results (
 - Server generates short-lived tokens (1-hour expiry) using Agora Token Builder SDK
 - Client joins channel using the token; Agora enforces token validity
 - After match concludes, channel is destroyed server-side via Agora REST API
+- **No Agora Cloud Recording or RTT** — moderation and grading use R2 uploads + worker pipeline (M-08/M-10)
 
 ### Client-Side Recording
 - While in the Agora channel, client records the full session locally using `expo-av`
 - After `conclude` signal, client uploads the raw audio to R2 via pre-signed URL
-- Upload triggers the post-match Celery task
+- Upload triggers tiered post-match Celery dispatch via `resolve_pipeline_tier()` (see [[tdd_spec_postMatchPipeline.md]])
 
 ---
 
@@ -166,4 +167,4 @@ The live ranked battle is the **pinnacle of productive discomfort**. Unlike less
 ## 4. Bidirectional Links
 
 - [features.md → M-06](../features.md)
-- Related specs: [[tdd_spec_eloMatchmaking.md]] (matchmaking algorithm), [[tdd_spec_postMatchPipeline.md]] (grading), [[tdd_spec_toxicityModeration.md]] (live safety), [[tdd_spec_squadQueues.md]] (Post-MVP extension)
+- Related specs: [[tdd_spec_eloMatchmaking.md]] (matchmaking algorithm), [[tdd_spec_postMatchPipeline.md]] (grading), [[tdd_spec_toxicityModeration.md]] (post-match safety), [[tdd_spec_computeEconomics.md]] (RTC phasing), [[tdd_spec_squadQueues.md]] (Post-MVP extension)

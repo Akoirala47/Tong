@@ -4,7 +4,7 @@
 
 Tong is the world's first competitive language-learning ecosystem. It fuses three distinct interaction modes — a structured solo grind (PvE), asynchronous turn-based voice duels, and a live ranked voice arena (PvP) — into a single, cohesion-driven platform governed by a global ELO ladder.
 
-Language fluency is not acquired by recognition alone. It is forged under pressure, in real-time, when the cost of hesitation is felt. Tong manufactures that pressure deliberately and repeatedly.
+Language fluency is not acquired by recognition alone. It is forged under pressure, in real-time, when the cost of hesitation is felt. Tong manufactures that pressure deliberately and repeatedly. Monetization gates **analysis depth**, not the ability to speak — free players get daily lite coaching; Plus removes ads and adds capped coaching; Pro unlocks unlimited Qwen-powered full analysis; Elite upgrades to Whisper turbo and phoneme-level feedback.
 
 ---
 

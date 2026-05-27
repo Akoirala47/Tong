@@ -2,49 +2,60 @@
 
 > Back to [features.md](../features.md) | See [narrative.md](../narrative.md) for North Star
 > **Post-MVP** — assumes all M-01 through M-10 tasks are complete.
+> Queue routing defined in [[tdd_spec_computeEconomics.md]]; `queue_type` column created in M-08.
 
 ---
 
 ## 1. Technical Specification
 
 ### Overview
-Pro subscribers' post-match audio files are routed to a dedicated high-throughput Celery queue, bypassing the standard worker pool. This guarantees materially faster feedback delivery, creating a tangible, felt difference in the Pro experience.
+Pro and Elite subscribers' post-match jobs route to dedicated GPU Celery queues, bypassing the CPU standard pool used by Free and Plus users. Three queues total — `standard` (CPU), `qwen` (GPU/vLLM for Pro), `elite_gpu` (GPU/faster-whisper for Elite).
 
 ### Queue Architecture
 
 ```
-[Standard Pool]                    [Priority Pool]
-celery -Q standard -c 4            celery -Q priority -c 2
+[Standard Pool — CPU]       [Qwen Pool — GPU/vLLM]    [Elite Pool — GPU]
+celery -Q standard -c 4     celery -Q qwen -c 2        celery -Q elite_gpu -c 2
 
-Free users → standard queue        Pro users → priority queue
+Free/Plus → standard        Pro → qwen                  Elite → elite_gpu
+metadata_only, lite         full                         elite, elite_phoneme
 ```
 
-Celery supports named queues natively. Task dispatch checks `is_pro(user_id)` and routes accordingly:
+Celery supports named queues natively. Task dispatch is integrated in `dispatch_processing_job()` (M-08):
 
 ```python
-def dispatch_processing_job(match_id: str, user_id: str):
-    queue = "priority" if is_pro(user_id) else "standard"
-    process_match.apply_async(args=[match_id], queue=queue)
+def dispatch_processing_job(user_id: str, source_type: str, source_id: str):
+    tier = resolve_pipeline_tier(user_id, source_type)
+    sub = subscription_tier(user_id)
+    if sub == "elite":
+        queue = "elite_gpu"
+    elif sub == "pro":
+        queue = "qwen"
+    else:
+        queue = "standard"
+    process_match.apply_async(args=[source_id, source_type, tier], queue=queue)
 ```
 
-For squad matches (P-05): if any player in the match is Pro, the job goes to priority queue. (The match recording is shared; it would be unfair to have a hybrid routing.)
+For squad matches (P-05): if any player in the match is Pro or Elite, the job goes to the highest-priority queue available.
 
 ### SLA Targets
 
-| Tier | Target Turnaround (match conclusion → result delivered) |
-|------|---------------------------------------------------------|
-| Free (first match) | < 120 seconds |
-| Pro | < 30 seconds |
+| Subscription | Pipeline | Queue | Target Turnaround |
+|-------------|----------|-------|-------------------|
+| Free / Plus (lite) | `lite` on standard/CPU | `standard` | < 120 seconds |
+| Free / Plus (metadata) | `metadata_only` on standard | `standard` | < 30 seconds |
+| Pro | `full` (Qwen) on GPU | `qwen` | < 30 seconds |
+| Elite | `elite`, `elite_phoneme` on GPU | `elite_gpu` | < 30 seconds |
 
 SLA compliance is tracked per job in `processing_jobs.completed_at - created_at`.
 
 ### Data Models
 
-No new tables needed. Extension of `processing_jobs` (M-08):
+`queue_type` on `processing_jobs` is created in **M-08** migration. P-09 deploys dedicated GPU workers for the `priority` queue:
 
 ```sql
-ALTER TABLE processing_jobs ADD COLUMN queue_type TEXT NOT NULL DEFAULT 'standard';
--- 'standard' | 'priority'
+-- Already on processing_jobs from M-08:
+-- queue_type TEXT NOT NULL DEFAULT 'standard'  -- 'standard' | 'qwen' | 'elite_gpu'
 ```
 
 ### API Endpoints
@@ -67,11 +78,13 @@ ALTER TABLE processing_jobs ADD COLUMN queue_type TEXT NOT NULL DEFAULT 'standar
 
 ```python
 # test_priority_queue_unit.py
-def test_pro_user_job_dispatched_to_priority_queue():
+def test_pro_user_job_dispatched_to_qwen_queue():
+def test_elite_user_job_dispatched_to_elite_gpu_queue():
 def test_free_user_job_dispatched_to_standard_queue():
-def test_squad_match_with_any_pro_member_uses_priority_queue():
+def test_plus_user_job_dispatched_to_standard_queue():
+def test_squad_match_with_any_pro_or_elite_member_uses_priority_queue():
 def test_queue_type_recorded_in_processing_jobs():
-def test_is_pro_check_called_before_dispatch():
+def test_subscription_tier_check_called_before_dispatch():
 ```
 
 ### Integration Tests
@@ -89,11 +102,12 @@ def test_standard_queue_backlog_does_not_delay_priority_jobs():
 ### E2E Tests
 
 ```
-Scenario: Pro user receives results faster than free user
-  Given a Pro user and a free user both complete matches simultaneously
-  When both upload their audio to R2
-  Then the Pro user receives their result notification within 30 seconds
-  And the free user receives their result notification within 120 seconds
+Scenario: Pro and Elite users receive results faster than free users
+  Given a Pro user, an Elite user, and a free user all complete matches simultaneously
+  When all upload their audio to R2
+  Then the Pro user receives their result notification within 30 seconds (Qwen queue)
+  And the Elite user receives their result notification within 30 seconds (Elite GPU queue)
+  And the free user receives their result notification within 120 seconds (standard CPU queue)
 
 Scenario: Admin monitors queue health
   Given a high volume of concurrent match completions
@@ -108,11 +122,11 @@ Scenario: Admin monitors queue health
 
 The North Star: **"Force players to speak before they feel ready."**
 
-The value of post-match feedback diminishes with time. A coaching note delivered 30 seconds after a match, while the conversation is still fresh in the player's memory, is dramatically more useful than one delivered 2 minutes later. The priority queue is not merely a quality-of-service feature — it is a **pedagogical improvement**. By guaranteeing near-instant feedback for Pro users, Tong makes the feedback loop tight enough to be actionable in the same session, reinforcing the connection between the error made and the correction received.
+The value of post-match feedback diminishes with time. A coaching note delivered 30 seconds after a match, while the conversation is still fresh in the player's memory, is dramatically more useful than one delivered 2 minutes later. The priority queues are not merely a quality-of-service feature — they are a **pedagogical improvement**. By guaranteeing near-instant feedback for Pro and Elite users, Tong makes the feedback loop tight enough to be actionable in the same session, reinforcing the connection between the error made and the correction received.
 
 ---
 
 ## 4. Bidirectional Links
 
 - [features.md → P-09](../features.md)
-- Related specs: [[tdd_spec_postMatchPipeline.md]] (job dispatch point), [[tdd_spec_tongPro.md]] (Pro entitlement check), [[tdd_spec_phonemeAnalysis.md]] (extended pipeline in priority queue)
+- Related specs: [[tdd_spec_postMatchPipeline.md]] (job dispatch point), [[tdd_spec_computeEconomics.md]] (queue/tier rules), [[tdd_spec_tongPro.md]] (Pro entitlement check), [[tdd_spec_phonemeAnalysis.md]] (extended pipeline in priority queue)

@@ -4,7 +4,8 @@
 > **Dev B:** Mobile (React Native screens, components, client integrations)
 >
 > **Assumption:** All tasks in [mvp_tasks.md](./mvp_tasks.md) are complete and deployed.
-> Foundation, auth, DB, Agora, R2, and push notifications are all in place — not repeated here.
+> Foundation, auth, DB, Agora (voice only), tiered worker pipeline, R2, and push notifications are in place — not repeated here.
+> Cost/tier rules: [tdd_spec_computeEconomics.md](./specs/tdd_spec_computeEconomics.md)
 >
 > **Gate** = Dev B waits for this Dev A task before integrating real data.
 
@@ -88,17 +89,19 @@
 - [ ] **A-P04-05** — `align_phonemes(audio_path, transcript, language)` via wav2vec2 CTC forced alignment; preload model weights on worker startup
 - [ ] **A-P04-06** — `score_pronunciation(phoneme_alignment, language)` via SpeechBrain GOP
 - [ ] **A-P04-07** — `analyze_formants(audio_segment, flagged_vowels)` via parselmouth; compute deviation from `native_phoneme_references`
-- [ ] **A-P04-08** — Stage 2.5 Celery task: chain after Whisper, before DeepSeek; write to `phoneme_analysis_results`
+- [ ] **A-P04-08** — Stage 2.5 Celery task: run only when `pipeline_tier='elite_phoneme'`; write to `phoneme_analysis_results`
 - [ ] **A-P04-09** — Extend DeepSeek prompt with phoneme data; pronunciation-specific coaching in feedback
-- [ ] **A-P04-10** — Gate Stage 2.5 behind `is_pro()` check — free users skip this stage
+- [ ] **A-P04-10** — Gate Stage 2.5 behind Pro + on-demand trigger (not every Pro job)
 - [ ] **A-P04-11** — Update flashcard injection: also inject phoneme-flagged words (not just DeepSeek-flagged)
-- [ ] **A-P04-12** — Integration tests: Stage 2.5 runs for Pro, skipped for free, results in DB, extended prompt delivered to DeepSeek
+- [ ] **A-P04-12** — Integration tests: on-demand promotion, auto-flag trigger, free user blocked
+- [ ] **A-P04-13** — `POST /matches/live/{id}/pronunciation-analysis` + async duel variant; enqueue `elite_phoneme` on `elite_gpu` queue (Elite users only)
 
 > **🔒 Gate P-04:** Dev B adds pronunciation section to result screen after A-P04-09 + A-P04-12 deployed.
 
 ### Dev B
 - [ ] **B-P04-01** — Update match result screen: add "Pronunciation" section (Pro badge + mispronounced phoneme list + coaching note)
 - [ ] **B-P04-02** — "Pro only" paywall prompt on pronunciation section for free users
+- [ ] **B-P04-03** — "Analyze pronunciation" CTA button (Elite) triggers on-demand `elite_phoneme` job; paywall prompt for Free/Plus/Pro
 
 ---
 
@@ -150,29 +153,30 @@
 
 ---
 
-## P-07 — Tong Pro Monetization
+## P-07 — Tong Subscription Tiers (Plus / Pro / Elite)
 
 ### Dev A
-- [ ] **A-P07-01** — Migration: `subscriptions`, `subscription_events`
-- [ ] **A-P07-02** — Add `queue_type` column to `processing_jobs` (ALTER TABLE migration)
-- [ ] **A-P07-03** — Set up Stripe account; configure monthly subscription product + price
-- [ ] **A-P07-04** — Unit tests: `is_pro()` Redis cache hit/miss, status checks (active/cancelled/expired), cap enforcement
-- [ ] **A-P07-05** — `is_pro(user_id)` — Redis cache (5-min TTL) backed by `subscriptions` table
-- [ ] **A-P07-06** — `POST /webhooks/stripe` — validate signature; handle created/updated/deleted; invalidate Redis cache
-- [ ] **A-P07-07** — `POST /webhooks/apple` — validate Apple server notification; map to create/renew/cancel
-- [ ] **A-P07-08** — `POST /webhooks/google` — validate Google RTDN; map to create/renew/cancel
+- [ ] **A-P07-01** — Migration: `subscriptions` (with `plan_tier` column), `subscription_events`
+- [ ] **A-P07-02** — Confirm `queue_type` on `processing_jobs` exists from M-08 (no duplicate migration)
+- [ ] **A-P07-03** — Set up Stripe account; configure three subscription products: **Plus $9.99** (`tong_plus_monthly_999`), **Pro $15.99** (`tong_pro_monthly_1599`), **Elite $19.99** (`tong_elite_monthly_1999`) + matching Apple/Google SKUs
+- [ ] **A-P07-04** — Unit tests: `subscription_tier()` Redis cache hit/miss, plan tier checks (plus/pro/elite/free), cap enforcement per tier
+- [ ] **A-P07-05** — `subscription_tier(user_id)` → `'free'|'plus'|'pro'|'elite'`; Redis cache (5-min TTL) backed by `subscriptions` table
+- [ ] **A-P07-06** — `POST /webhooks/stripe` — validate signature; handle created/updated/deleted/upgraded; write `plan_tier`; invalidate Redis cache
+- [ ] **A-P07-07** — `POST /webhooks/apple` — validate Apple server notification; map to create/renew/cancel; write `plan_tier`
+- [ ] **A-P07-08** — `POST /webhooks/google` — validate Google RTDN; map to create/renew/cancel; write `plan_tier`
 - [ ] **A-P07-09** — `POST /subscriptions/checkout`, `GET /subscriptions/me`, `POST /subscriptions/cancel`
-- [ ] **A-P07-10** — Wire `is_pro()` into: async duel cap (M-05), full analysis gate (M-08), phoneme gate (P-04)
-- [ ] **A-P07-11** — Integration tests: Stripe webhook creates subscription, cache invalidated, free cap enforced vs bypassed
+- [ ] **A-P07-10** — Wire `subscription_tier()` into: async duel cap (M-05), tier resolver (M-08), phoneme on-demand gate (P-04)
+- [ ] **A-P07-11** — Implement full/elite Celery worker paths (Qwen3-ASR-0.6B on `qwen` queue; whisper-large-v3-turbo on `elite_gpu` queue) — these were stubbed in MVP M-08
+- [ ] **A-P07-12** — Integration tests: Stripe webhook creates correct plan_tier, cache invalidated, caps enforced per tier, full+elite pipelines actually run
 
 > **🔒 Gate P-07:** Dev B integrates purchase flow after A-P07-06 + A-P07-09 deployed.
 
 ### Dev B
-- [ ] **B-P07-01** — App store setup: Apple IAP product + Google Play Billing SKU configured in respective consoles
+- [ ] **B-P07-01** — App store setup: three Apple IAP products + three Google Play Billing SKUs configured in respective consoles
 - [ ] **B-P07-02** — Integrate RevenueCat SDK (handles Apple + Google purchase validation + cross-platform subscription state)
-- [ ] **B-P07-03** — Paywall screen: feature comparison table (Free vs Pro), monthly price, Subscribe CTA
-- [ ] **B-P07-04** — Trigger paywall: show on fourth async duel attempt, on second-match result screen (free gate), on Pro-only feature tap
-- [ ] **B-P07-05** — Subscription management screen: current plan, next billing date, Cancel button (calls `POST /subscriptions/cancel`)
+- [ ] **B-P07-03** — Paywall screen: four-column comparison (Free / Plus $9.99 / Pro $15.99 / Elite $19.99); highlight Pro as recommended
+- [ ] **B-P07-04** — Trigger paywall: show on fourth async duel attempt (free), on ninth duel attempt (plus), on second-match result screen (free/plus cap), on Elite-only feature tap
+- [ ] **B-P07-05** — Subscription management screen: current plan + tier badge, next billing date, Upgrade/Downgrade button, Cancel button
 
 ---
 
@@ -204,11 +208,11 @@
 *Entirely backend infrastructure. No mobile UI.*
 
 ### Dev A
-- [ ] **A-P09-01** — Confirm `queue_type` column exists on `processing_jobs` (from P-07 A-P07-02); add if not
+- [ ] **A-P09-01** — Confirm `queue_type` on `processing_jobs` exists from M-08
 - [ ] **A-P09-02** — Unit tests: Pro user → priority queue, free user → standard queue, squad match with any Pro member → priority
 - [ ] **A-P09-03** — Celery worker config: define two named queues (`standard`, `priority`) with separate concurrency pools
 - [ ] **A-P09-04** — Railway deployment: add second worker service consuming only `priority` queue (always-on, min 2 replicas)
-- [ ] **A-P09-05** — Update `dispatch_processing_job()`: call `is_pro()`, route to correct queue, persist `queue_type` in DB
+- [ ] **A-P09-05** — Update `dispatch_processing_job()`: call `subscription_tier()`, route to `standard`/`qwen`/`elite_gpu` queue, persist `queue_type` in DB
 - [ ] **A-P09-06** — Update squad match dispatch: route to priority if any party member is Pro
 - [ ] **A-P09-07** — `GET /admin/queue/stats` — Redis queue depths for both queues
 - [ ] **A-P09-08** — SLA tracking: calculate `(completed_at - created_at)` per job; P50/P95 latency in admin stats
@@ -241,12 +245,38 @@
 
 ---
 
+---
+
+## P-11 — In-App Advertising (Free Tier)
+
+*Free users only. All paid tiers (Plus/Pro/Elite) are ad-free.*
+
+### Dev A
+- [ ] **A-P11-01** — Add `ad_impression_log` table: `user_id`, `ad_slot`, `shown_at`, `skipped_at`
+- [ ] **A-P11-02** — Unit tests: impression counter, skip tracking, ensure paid users receive no ad signals
+- [ ] **A-P11-03** — `GET /ads/next?slot=post_result|lesson_summary` — returns ad payload for free users; returns 204 for paid users
+- [ ] **A-P11-04** — Wire lesson completion counter: every 2nd completed lesson for free users triggers `slot=lesson_summary` flag in lesson completion response
+- [ ] **A-P11-05** — Integration tests: free user gets ad payload, paid user gets 204, impression logged correctly
+
+> **🔒 Gate P-11:** Dev B integrates ad display after A-P11-03 deployed.
+
+### Dev B
+- [ ] **B-P11-01** — Integrate mobile ad SDK (e.g., Google AdMob); configure app IDs for iOS + Android
+- [ ] **B-P11-02** — Post-result ad slot: show interstitial after match/duel result screen for free users; skippable after ~5s
+- [ ] **B-P11-03** — Lesson summary ad slot: show banner/interstitial on every 2nd lesson summary screen for free users
+- [ ] **B-P11-04** — Never show ads during: voice call, matchmaking queue, or any loading/processing state
+- [ ] **B-P11-05** — "Remove ads" CTA on ad screens links to paywall (B-P07-03)
+
+---
+
 ## Post-MVP Completion Checklist
 
 - [ ] All P-01 through P-10 unit + integration tests green on CI
 - [ ] JIT prompt generation validated end-to-end: matched pair receives personalized prompt with injected slang
-- [ ] Phoneme pipeline tested with a real Spanish audio sample; mispronounced phonemes appear in flashcard queue
-- [ ] Tong Pro subscription tested on iOS (Apple IAP) and Android (Google Play) — both stores
+- [ ] Phoneme on-demand analysis tested: Elite user taps CTA → `elite_phoneme` job → mispronounced phonemes in flashcard queue
+- [ ] All three subscription tiers (Plus $9.99 / Pro $15.99 / Elite $19.99) tested on iOS (Apple IAP) and Android (Google Play)
+- [ ] Qwen3-ASR-0.6B Pro pipeline validated end-to-end: Pro user match → Qwen queue → full grading (<30s)
+- [ ] Whisper large-v3-turbo Elite pipeline validated end-to-end: Elite user match → elite_gpu queue → full grading (<30s)
 - [ ] Priority queue validated under load: Pro user results < 30s, free user < 120s
 - [ ] Audio CDN cache hit rate > 80% for Bronze + Silver vocabulary after preload
 - [ ] Analytics Monday job runs clean; snapshots visible in dashboard

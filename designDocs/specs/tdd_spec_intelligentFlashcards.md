@@ -56,8 +56,8 @@ CREATE TABLE user_flashcard_queue (
 
 ### Injection Sources
 - **From Micro-Lessons:** On wrong answer → `POST /flashcards/inject` with `source='lesson'`
-- **From Post-Match Pipeline:** On mispronounced/misused word flagged by DeepSeek → `POST /flashcards/inject` with `source='pvp_match'`
-- **From Async Duels:** Same as PvP match, `source='async_duel'`
+- **From Post-Match Pipeline:** On mispronounced/misused word flagged by DeepSeek → `POST /flashcards/inject` with `source='pvp_match'` (**lite**, **full**, **elite**, and **elite_phoneme** tiers only — not `metadata_only`)
+- **From Async Duels:** Plus/Pro/Elite only (`source='async_duel'`, lite or full/elite tier); free async uses metadata-only grading with no injection
 
 Deduplication: if word already in queue, reset `interval_days = 1` (failure re-triggers review)
 

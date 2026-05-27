@@ -1,46 +1,54 @@
 # TDD Spec: Toxicity Moderation (M-10)
 
 > Back to [features.md](../features.md) | See [narrative.md](../narrative.md) for North Star
+> Cost strategy: [[tdd_spec_computeEconomics.md]] — post-match scan, no Agora RTT
 
 ---
 
 ## 1. Technical Specification
 
 ### Overview
-Near-real-time audio scanning during live ranked voice calls for slurs, harassment, and prohibited terms. The goal is not perfect accuracy — it is a fast, lightweight deterrent that catches egregious violations during the match and flags them for review. False positives err toward a brief mute (low cost), not a ban (high cost).
+Scan completed match transcripts for slurs, harassment, and prohibited terms. Runs as **Stage 1b** in the post-match pipeline after Whisper transcription (lite/full tiers only). The goal is effective deterrence without the cost of Agora Cloud Recording or Real-Time Transcription (RTT). Repeat offenders receive warnings and bans enforced at queue entry.
 
-### Architecture: Agora Cloud Recording + STT Hook
+**MVP tradeoff:** No mid-match auto-mute. Violations are flagged post-match; bans block future queue entry. Mid-match moderation deferred to v2 (requires live STT — high cost).
+
+### Architecture: Post-Match Transcript Scan
+
 ```
-[Agora RTC Channel (live match)]
+[Match Concluded → R2 upload → Whisper Stage 1]
       │
       ▼
-[Agora Cloud Recording — server-side composite recording]
-      ▼
-[Agora Real-Time Transcription (RTT) Plugin] ← lightweight, low-latency STT
-      ▼
-[Webhook → FastAPI /moderation/hook endpoint]
+[Stage 1b — Toxicity Scan]  (runs inside Celery pipeline)
       │
       ▼
 [Toxicity Classifier — keyword + ML]
       │
-      ├─ CLEAN: no action
+      ├─ CLEAN: continue to DeepSeek grading
       │
       └─ FLAGGED:
-            ├─ Mute offending player in Agora channel
             ├─ Create moderation_events record
-            └─ Send alert to both players in-app
+            ├─ Increment user offense history
+            ├─ Issue warning or ban (repeat offenders)
+            └─ Push notification to affected players
 ```
+
+No Agora webhook, cloud recording, or RTT required. Agora RTC is voice transport only (M-06).
 
 ### Toxicity Classifier (Lightweight)
 - **Stage 1 — Keyword Filter:** Banned term list per language (slurs, hate speech); exact match + phonetic variants
 - **Stage 2 — ML Classifier:** `detoxify` Python library (multilingual transformer); score threshold 0.85 for "severe toxicity" category
-- Both stages run synchronously on the webhook thread (target < 300ms total)
-- If either stage flags content: trigger mute action
+- Runs synchronously in Celery worker after transcript is available (target < 500ms)
+- If either stage flags content: create moderation event and apply enforcement policy
 
-### Agora Moderation Actions
-- **Mute:** Server-side channel mute for 60 seconds (first offense); permanent for session (second offense)
-- **Kick:** On third offense, player is removed from the Agora channel (match ends, opponent wins)
-- Actions executed via Agora REST API: `POST /v1/kicking-rule`
+### Enforcement Policy (Post-Match)
+
+| Offense history (rolling 30 days) | Action |
+|-----------------------------------|--------|
+| 1st flagged match | Warning notification; event queued for human review |
+| 2nd flagged match | 24-hour ranked queue ban |
+| 3rd+ flagged match | 7-day ban; admin review required for permanent ban |
+
+Admin can override via `PATCH /moderation/events/{id}` with verdict `false_positive`.
 
 ### Data Models
 
@@ -49,12 +57,12 @@ Near-real-time audio scanning during live ranked voice calls for slurs, harassme
 CREATE TABLE moderation_events (
     id              UUID PRIMARY KEY DEFAULT gen_random_uuid(),
     match_id        UUID REFERENCES live_matches(id),
+    job_id          UUID REFERENCES processing_jobs(id),
     reported_user_id UUID REFERENCES users(id),
     transcript_segment TEXT,            -- the offending text excerpt
     offense_type    TEXT NOT NULL,      -- 'keyword_match' | 'ml_flag'
     toxicity_score  NUMERIC(4,3),       -- detoxify score (0-1)
-    action_taken    TEXT NOT NULL,      -- 'mute_60s' | 'mute_session' | 'kick'
-    offense_count   INTEGER NOT NULL,   -- 1/2/3 within this match
+    action_taken    TEXT NOT NULL,      -- 'warning' | 'ban_24h' | 'ban_7d' | 'none'
     reviewed        BOOLEAN DEFAULT FALSE,
     reviewer_verdict TEXT,              -- 'confirmed' | 'false_positive' | NULL
     created_at      TIMESTAMPTZ DEFAULT NOW()
@@ -76,11 +84,16 @@ CREATE TABLE user_bans (
 
 | Method | Path | Auth | Description |
 |--------|------|------|-------------|
-| POST | `/moderation/hook` | Agora webhook secret | Receives RTT transcript chunks from Agora |
 | GET | `/moderation/events` | Admin | List flagged events pending human review |
 | PATCH | `/moderation/events/{event_id}` | Admin | Set reviewer verdict |
 | POST | `/moderation/ban/{user_id}` | Admin | Issue a ban |
 | GET | `/moderation/ban/{user_id}` | Bearer | Check if current user is banned |
+
+No public webhook endpoint in MVP. Toxicity scan is internal to the Celery pipeline.
+
+### Queue Entry Ban Check
+
+`POST /matches/live/queue` calls `GET /moderation/ban/{user_id}` (or inline check) before adding player to Redis queue. Returns 403 with ban expiry if active.
 
 ---
 
@@ -95,37 +108,34 @@ def test_keyword_filter_detects_phonetic_variant():
 def test_keyword_filter_is_case_insensitive():
 def test_ml_classifier_score_above_threshold_returns_flagged():
 def test_ml_classifier_score_below_threshold_returns_clean():
-def test_first_offense_action_is_mute_60s():
-def test_second_offense_action_is_mute_session():
-def test_third_offense_action_is_kick():
-def test_offense_count_resets_per_match_not_per_user():
-def test_webhook_signature_validation_rejects_invalid_secret():
-def test_classifier_returns_within_300ms():
+def test_first_offense_action_is_warning():
+def test_second_offense_action_is_ban_24h():
+def test_third_offense_action_is_ban_7d():
+def test_classifier_skipped_for_metadata_only_pipeline_tier():
+def test_classifier_runs_for_lite_and_full_tiers():
 ```
 
 ### Integration Tests
 
 ```python
 # test_toxicity_integration.py
-def test_webhook_creates_moderation_event_on_flag():
-def test_webhook_no_event_created_for_clean_transcript():
-def test_agora_mute_api_called_on_first_offense():
-def test_agora_kick_api_called_on_third_offense():
+def test_toxic_transcript_creates_moderation_event():
+def test_clean_transcript_no_moderation_event():
+def test_flagged_user_receives_warning_push_notification():
 def test_banned_user_cannot_enter_queue():
-def test_admin_verdict_confirmed_updates_event_reviewed_flag():
-def test_admin_verdict_false_positive_logs_correctly():
-def test_multiple_flags_in_same_match_increment_offense_count():
+def test_admin_verdict_false_positive_clears_ban():
+def test_moderation_scan_chained_after_whisper_in_celery_pipeline():
 ```
 
 ### E2E Tests
 
 ```
-Scenario: Player uses a banned term mid-match
-  Given two players in an active live match
-  When Player 1 says a banned term
-  Then Player 1 is muted for 60 seconds
-  And both players see a "Warning issued" in-app notification
-  And a moderation_event is created for human review
+Scenario: Player uses banned language in live match
+  Given two players complete a live match with lite analysis
+  When the transcript contains a banned term
+  Then a moderation_event is created
+  And the offending player receives a warning notification
+  And the match grading pipeline continues (ELO still updates)
 
 Scenario: Banned user cannot queue
   Given a user with an active ban
@@ -139,11 +149,13 @@ Scenario: Banned user cannot queue
 
 The North Star: **"Force players to speak before they feel ready."**
 
-Productive discomfort only works in a safe environment. If players fear harassment, they will not speak authentically — they will play conservatively, or not at all. Toxicity moderation is the **psychological safety layer** that makes the competitive pressure of Tong feel exhilarating rather than threatening. The near-real-time mute (during the match, not post-match) ensures that the harm is interrupted before it escalates, while the post-match human review prevents ML false positives from becoming unjust bans. A clean, competitive arena is a prerequisite for the core product to function.
+Productive discomfort requires psychological safety. Post-match moderation catches violations without the infrastructure cost of live STT, keeping the arena safe while preserving unit economics. Human review prevents ML false positives from becoming unjust bans.
+
+**Deferred v2:** Mid-match auto-mute via live STT if product data shows post-match enforcement is insufficient.
 
 ---
 
 ## 4. Bidirectional Links
 
 - [features.md → M-10](../features.md)
-- Related specs: [[tdd_spec_liveRankedBattles.md]] (Agora channel context), [[tdd_spec_postMatchPipeline.md]] (companion pipeline)
+- Related specs: [[tdd_spec_computeEconomics.md]] (cost strategy), [[tdd_spec_postMatchPipeline.md]] (Stage 1b integration), [[tdd_spec_liveRankedBattles.md]] (queue ban check)

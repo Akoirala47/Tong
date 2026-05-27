@@ -81,6 +81,11 @@ CREATE TABLE rank_tier_history (
 - Promotion/demotion events write to `rank_tier_history` and push a notification to the user
 - **Promotion shield:** 3 matches after promotion, cannot be demoted (prevents yo-yo effect)
 
+### ELO Updates by Pipeline Tier
+- **`lite` / `full` / `elite` / `elite_phoneme`:** Winner from DeepSeek grading (or draw logic)
+- **`metadata_only`:** ELO delta from match metadata (duration, engagement, forfeit) — no transcript required
+- All tiers award XP via gamification (M-09)
+
 ### Matchmaking Window Expansion
 ```
 Queue age 0-60s:   ±150 MMR

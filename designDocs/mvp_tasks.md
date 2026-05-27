@@ -6,7 +6,7 @@
 > **Gate** = explicit sync point where Dev B must wait for Dev A before integrating.
 > Dev B builds against mock/stub responses until each gate is cleared.
 >
-> See [features.md](./features.md) | [tech_stack.md](./tech_stack.md)
+> See [features.md](./features.md) | [tech_stack.md](./tech_stack.md) | [tdd_spec_computeEconomics.md](./specs/tdd_spec_computeEconomics.md)
 
 ---
 
@@ -124,6 +124,7 @@
 - [ ] **A-M05-06** — Celery beat task (every 5 min): forfeit expired duels, notify both players
 - [ ] **A-M05-07** — Free tier cap check (3 active duels) → 403 in queue endpoint
 - [ ] **A-M05-08** — Integration tests: full turn cycle, forfeit on timeout, cap enforcement
+- [ ] **A-M05-09** — On duel completion: dispatch `process_match` with `source_type=async_duel` → `metadata_only` tier for free users (paid-tier-ready via `subscription_tier()` stub returning 'free' until P-07)
 
 > **🔒 Gate M-05:** Dev B integrates after A-M05-03 + A-M05-05 are deployed.
 
@@ -131,7 +132,7 @@
 - [ ] **B-M05-01** — Set up push notification dispatch integration (Expo Push API); test on physical device
 - [ ] **B-M05-02** — Async Duels home screen: active duels list, turn indicator badge, "Your turn" highlight
 - [ ] **B-M05-03** — Duel screen: prompt display, opponent audio playback, record + submit interface (`expo-av`; enforce 90s max)
-- [ ] **B-M05-04** — Duel result screen: winner announcement, ELO delta, weak words
+- [ ] **B-M05-04** — Duel result screen: winner announcement, ELO delta; metadata-only for free (no feedback paragraphs until P-07 Pro)
 - [ ] **B-M05-05** — E2E test: full 3-round duel from queue through result notification
 
 ---
@@ -147,7 +148,6 @@
 - [ ] **A-M06-06** — Celery beat (2s): scan queue, pair within MMR window, create match, generate Agora tokens, push to both WebSockets
 - [ ] **A-M06-07** — `GET /matches/live/{id}`, `POST /matches/live/{id}/ready`, `POST /matches/live/{id}/conclude`
 - [ ] **A-M06-08** — `POST /matches/live/{id}/upload` — pre-signed R2 URL for audio upload
-- [ ] **A-M06-09** — Configure Agora cloud recording on the match channel (feeds M-10 toxicity hook)
 - [ ] **A-M06-10** — Integration tests: queue entry, matchmaking pairing, full match state machine
 
 > **🔒 Gate M-06:** Dev B integrates after A-M06-04 + A-M06-07 are deployed (Dev B can use a local Agora test channel before this).
@@ -186,27 +186,32 @@
 
 ## M-08 — Post-Match Processing Pipeline
 
-### Dev A
-- [ ] **A-M08-01** — Migration: `processing_jobs`, `transcripts`
-- [ ] **A-M08-02** — Unit tests: Whisper output parsing, DeepSeek JSON validation, WPM calculation, free-tier gate logic
-- [ ] **A-M08-03** — Celery task `process_match(match_id, source_type)` — entry point; creates job record; chains stages
-- [ ] **A-M08-04** — Stage 1: download audio from R2, run `whisper-large-v3-turbo`, write transcript + timestamps to DB
-- [ ] **A-M08-05** — DeepSeek grading prompt template; `call_deepseek_grader()` → structured JSON
-- [ ] **A-M08-06** — Stage 2: DeepSeek grading — winner, scores, filler words, flagged words, feedback paragraphs
-- [ ] **A-M08-07** — Stage 3: call `update_elo` for both players
-- [ ] **A-M08-08** — Stage 4: flashcard inject for each flagged word per player
-- [ ] **A-M08-09** — Stage 5: write results table, update match status → 'completed', push notification to both players
-- [ ] **A-M08-10** — Free-tier gate: check today's full-pipeline job count; if ≥ 1, skip to Stage 3 only
-- [ ] **A-M08-11** — Retry policy: 3 retries, exponential backoff; on final failure → 'failed' + push notification
-- [ ] **A-M08-12** — `GET /matches/live/{id}/result` — 404 while processing, result on completion
-- [ ] **A-M08-13** — Integration tests: full pipeline on audio fixture, free-tier gate, retry on Whisper failure
+> Tier rules: [tdd_spec_computeEconomics.md](./specs/tdd_spec_computeEconomics.md)
 
-> **🔒 Gate M-08:** Dev B builds result screen against mock data; integrates real results after A-M08-09 + A-M08-12 are deployed.
+### Dev A
+- [ ] **A-M08-01** — Migration: `processing_jobs` (incl. `pipeline_tier`, `analysis_type`, `queue_type`, `user_id`), `transcripts`
+- [ ] **A-M08-02** — Unit tests: tier resolver (free only — lite/metadata_only paths), whisper-small output parsing, lite DeepSeek JSON validation, WPM calculation, free-tier daily cap logic
+- [ ] **A-M08-03** — `resolve_pipeline_tier()` + `dispatch_processing_job()` — free-tier paths only (lite/metadata_only); Pro/Plus/Elite paths stubbed and return correct tier but full/elite worker implementation deferred to P-07
+- [ ] **A-M08-04** — Celery task `process_match(source_id, source_type, tier)` — chains stages by tier
+- [ ] **A-M08-05** — Stage 1: faster-whisper + `whisper-small` CPU for `lite` tier; VAD silence trim; metadata_only skips this stage
+- [ ] **A-M08-06** — Stage 2: DeepSeek grading — lite prompt template only in MVP (full/elite prompts implemented in P-07)
+- [ ] **A-M08-07** — Stage 3: call `update_elo` (full path: DeepSeek winner; metadata path: duration/engagement)
+- [ ] **A-M08-08** — Stage 4: flashcard inject (skip for `metadata_only`)
+- [ ] **A-M08-09** — Stage 5: write results table, update match status → 'completed', push notification
+- [ ] **A-M08-10** — Metadata-only path: skip ASR/DeepSeek; ELO-only result for free 2nd+ live match + all free async
+- [ ] **A-M08-11** — Free-tier daily cap: 1 lite job/user/day; count `pipeline_tier IN ('lite')` for today
+- [ ] **A-M08-12** — Celery queues: `standard` (CPU/free) only in MVP; `qwen` + `elite_gpu` queues scaffolded but empty until P-07
+- [ ] **A-M08-13** — Retry policy: 3 retries, exponential backoff; on final failure → 'failed' + push notification
+- [ ] **A-M08-14** — `GET /matches/live/{id}/result` — 404 while processing, result on completion
+- [ ] **A-M08-15** — Integration tests: all pipeline tiers, free-tier cap, metadata-only async, retry on Whisper failure
+
+> **🔒 Gate M-08:** Dev B builds result screen against mock data; integrates real results after A-M08-09 + A-M08-14 are deployed.
 
 ### Dev B
-- [ ] **B-M08-01** — Match result screen: WPM display, feedback paragraph, ELO change animation, weak words list
-- [ ] **B-M08-02** — Poll `GET /matches/live/{id}/result` every 3s while in "Analyzing…" state; navigate on completion
-- [ ] **B-M08-03** — "Processing failed" error state with retry prompt
+- [ ] **B-M08-01** — Match result screen: WPM + feedback (lite/full), ELO change animation, weak words list
+- [ ] **B-M08-02** — Metadata-only result variant: ELO only + "Upgrade for full breakdown" CTA
+- [ ] **B-M08-03** — Poll `GET /matches/live/{id}/result` every 3s while in "Analyzing…" state; navigate on completion
+- [ ] **B-M08-04** — "Processing failed" error state with retry prompt
 
 ---
 
@@ -232,23 +237,23 @@
 
 ## M-10 — Toxicity Moderation
 
-*Entirely backend. Dev B only adds a passive in-match warning toast.*
+> Post-match scan (no Agora RTT). See [tdd_spec_toxicityModeration.md](./specs/tdd_spec_toxicityModeration.md).
+
+*Entirely backend. Dev B adds post-match warning notification (no in-match mute toast in MVP).*
 
 ### Dev A
 - [ ] **A-M10-01** — Migration: `moderation_events`, `user_bans`
-- [ ] **A-M10-02** — Unit tests: keyword filter (exact + phonetic variants, case-insensitive), detoxify threshold, offense escalation (60s mute → session mute → kick)
+- [ ] **A-M10-02** — Unit tests: keyword filter (exact + phonetic variants, case-insensitive), detoxify threshold, enforcement escalation (warning → 24h ban → 7d ban)
 - [ ] **A-M10-03** — Seed banned term list per language as a config file (hot-reloadable)
-- [ ] **A-M10-04** — Install `detoxify`; implement `classify_toxicity(text) → ToxicityResult` (target < 300ms)
-- [ ] **A-M10-05** — `POST /moderation/hook` — validate Agora webhook signature; run keyword filter then detoxify
-- [ ] **A-M10-06** — Agora mute action on flag: call Agora REST API; write `moderation_events`
-- [ ] **A-M10-07** — Offense escalation: second → session mute; third → kick via Agora kicking-rule API
-- [ ] **A-M10-08** — `GET /moderation/events`, `PATCH /moderation/events/{id}` (admin), `POST /moderation/ban/{user_id}`
-- [ ] **A-M10-09** — Ban check at queue entry (`GET /moderation/ban/{user_id}` called in `POST /matches/live/queue`)
-- [ ] **A-M10-10** — Configure Agora RTT plugin in console; wire webhook URL to `/moderation/hook`
-- [ ] **A-M10-11** — Integration tests: hook creates event, Agora mute called, banned user blocked from queue
+- [ ] **A-M10-04** — Install `detoxify`; implement `classify_toxicity(text) → ToxicityResult`
+- [ ] **A-M10-05** — Stage 1b Celery task: scan transcript after Whisper; skip for `metadata_only` tier
+- [ ] **A-M10-06** — Enforcement: write `moderation_events`; issue warning/ban per offense history
+- [ ] **A-M10-07** — `GET /moderation/events`, `PATCH /moderation/events/{id}` (admin), `POST /moderation/ban/{user_id}`
+- [ ] **A-M10-08** — Ban check at queue entry (`POST /matches/live/queue` returns 403 if banned)
+- [ ] **A-M10-09** — Integration tests: flagged transcript creates event, banned user blocked from queue, scan skipped for metadata_only
 
 ### Dev B
-- [ ] **B-M10-01** — In-match warning toast: listen for moderation push event; display "Warning issued" overlay on live battle screen
+- [ ] **B-M10-01** — Post-match warning notification: push/in-app when user receives moderation warning after match
 
 ---
 
@@ -256,8 +261,10 @@
 
 - [ ] End-to-end flow validated by both devs together: register → solo lesson → boss battle → async duel → live match → result screen
 - [ ] All unit + integration tests green on CI
-- [ ] Toxicity moderation webhook live and tested on a real Agora channel
-- [ ] Free-tier gate validated: second match of the day returns ELO-only result
+- [ ] Post-match toxicity scan tested on real uploaded audio (lite pipeline)
+- [ ] Free-tier gate validated: second match of the day returns ELO-only metadata result
+- [ ] Free async duel validated: metadata-only grading (ELO/win-loss only)
+- [ ] Pro/Elite pipeline paths stubbed (resolver returns correct tier; full Qwen + Elite worker implementation ships in P-07)
 - [ ] iOS and Android builds pass store review checklists
 - [ ] Secrets in environment variables — no hardcoded keys in any committed file
 - [ ] Cloudflare R2 bucket policy: private (pre-signed URL only, no public list)

@@ -2,13 +2,24 @@
 
 > Back to [features.md](../features.md) | See [narrative.md](../narrative.md) for North Star
 > **Post-MVP** — assumes all M-01 through M-10 tasks are complete.
+> Cost strategy: on-demand only — see [[tdd_spec_computeEconomics.md]]
 
 ---
 
 ## 1. Technical Specification
 
 ### Overview
-Extends the core post-match pipeline (M-08) with a Stage 2.5 that runs between Whisper transcription and DeepSeek grading. Adds three analysis layers: wav2vec2 phoneme alignment, SpeechBrain GOP pronunciation scoring, and parselmouth F1/F2 formant analysis on flagged vowels. Output is merged into the DeepSeek grading prompt, enabling phoneme-level feedback.
+Extends the core post-match pipeline (M-08) with an optional Stage 2.5 between ASR transcription and DeepSeek grading. Adds wav2vec2 phoneme alignment, SpeechBrain GOP pronunciation scoring, and parselmouth F1/F2 formant analysis. **Elite subscribers only** — triggered on-demand to control GPU costs.
+
+### When Stage 2.5 Runs (`pipeline_tier = 'elite_phoneme'`)
+
+| Trigger | Description |
+|---------|-------------|
+| User request | Elite user taps "Analyze pronunciation" on result screen → `POST /matches/{id}/pronunciation-analysis` |
+| Auto-flagged | DeepSeek elite grading flags pronunciation issues in `flagged_words` |
+| Analytics refresh | Weekly Celery job for Elite users (P-08 materialization) |
+
+Default Elite pipeline tier is `elite` (no phoneme). Promotion to `elite_phoneme` enqueues Stage 2.5 on `elite_gpu` queue.
 
 ### Pipeline Position (extends M-08)
 
@@ -113,6 +124,13 @@ Phoneme Analysis for Player 1:
 Use this phoneme data to enrich the feedback paragraph with specific pronunciation guidance.
 ```
 
+### API Endpoints
+
+| Method | Path | Auth | Description |
+|--------|------|------|-------------|
+| POST | `/matches/live/{id}/pronunciation-analysis` | Bearer (Elite) | Promote job to `elite_phoneme`; enqueue Stage 2.5 |
+| POST | `/duels/async/{id}/pronunciation-analysis` | Bearer (Elite) | Same for async duel results |
+
 ---
 
 ## 2. TDD Requirements
@@ -136,25 +154,20 @@ def test_phoneme_data_merged_into_deepseek_prompt_correctly():
 
 ```python
 # test_phoneme_analysis_integration.py
-def test_stage_2_5_runs_after_whisper_in_celery_chain():
-def test_phoneme_results_written_to_phoneme_analysis_results():
-def test_deepseek_receives_extended_prompt_with_phoneme_data():
-def test_mispronounced_words_injected_into_flashcard_queue():
-def test_pro_user_job_includes_stage_2_5():
-def test_free_user_job_skips_stage_2_5():    # phoneme analysis is Pro-only
-def test_formant_data_available_in_linguistic_analytics():
+def test_stage_2_5_runs_only_when_pipeline_tier_is_elite_phoneme():
+def test_on_demand_endpoint_promotes_job_to_elite_phoneme():
+def test_pro_user_default_full_job_skips_stage_2_5():
+def test_free_user_cannot_call_pronunciation_analysis_endpoint():
 ```
 
 ### E2E Tests
 
 ```
-Scenario: Pro user receives phoneme-level feedback after match
-  Given a Pro user completes a live ranked match
-  When the full pipeline processes their audio
-  Then the result screen shows:
-    - Specific mispronounced phonemes (e.g., "the /r/ in 'rojo' was pronounced as /l/")
-    - F1/F2 deviation for flagged vowels
-    - An actionable coaching note per mispronunciation
+Scenario: Elite user requests on-demand pronunciation analysis
+  Given an Elite user completes a live ranked match with elite pipeline
+  When they tap "Analyze pronunciation" on the result screen
+  Then an elite_phoneme job is enqueued on the elite_gpu queue
+  And the result screen updates with mispronounced phonemes and coaching notes
   And mispronounced words appear in their flashcard queue
 ```
 
@@ -171,4 +184,4 @@ The phoneme pipeline answers the question that players ask after every match: "I
 ## 4. Bidirectional Links
 
 - [features.md → P-04](../features.md)
-- Related specs: [[tdd_spec_postMatchPipeline.md]] (extends Stage 2.5), [[tdd_spec_linguisticAnalytics.md]] (formant trend data), [[tdd_spec_tongPro.md]] (Pro-only gate), [[tdd_spec_intelligentFlashcards.md]] (word injection)
+- Related specs: [[tdd_spec_postMatchPipeline.md]] (extends Stage 2.5), [[tdd_spec_computeEconomics.md]] (on-demand tier), [[tdd_spec_linguisticAnalytics.md]] (formant trend data), [[tdd_spec_tongPro.md]] (Pro-only gate), [[tdd_spec_intelligentFlashcards.md]] (word injection)

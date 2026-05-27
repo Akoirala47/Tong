@@ -86,6 +86,19 @@ CREATE TABLE async_duel_results (
 - Marks the duel as `forfeited`, sets `winner_id` to the opponent
 - Sends push notification to both players
 
+### Post-Match Grading (Pipeline Tiers)
+
+On duel completion (`status → 'grading'`), dispatch `process_match` with `source_type='async_duel'` for each player via `resolve_pipeline_tier()`:
+
+| Subscription | Pipeline tier | Result |
+|-------------|---------------|--------|
+| Free | `metadata_only` | Winner, ELO delta only — no transcript, feedback, or flashcard injection |
+| Plus (P-07) | `lite` | whisper-small + short DeepSeek feedback + flashcard injection |
+| Pro (P-07) | `full` | Qwen3-ASR + full DeepSeek grading + feedback + flashcard injection |
+| Elite (P-07) | `elite` | Whisper large-v3-turbo + full DeepSeek + feedback + flashcard injection |
+
+See [[tdd_spec_postMatchPipeline.md]] and [[tdd_spec_computeEconomics.md]].
+
 ---
 
 ## 2. TDD Requirements
@@ -117,8 +130,10 @@ def test_celery_forfeit_task_runs_on_expired_duel():
 def test_get_active_duels_returns_only_users_duels():
 def test_free_tier_fourth_duel_request_returns_403():
 def test_complete_duel_triggers_grading_celery_task():
+def test_free_user_grading_uses_metadata_only_tier():
+def test_pro_user_grading_uses_full_tier():
 def test_grading_task_updates_elo_for_both_players():
-def test_grading_task_injects_flagged_words_into_flashcards():
+def test_grading_task_injects_flagged_words_for_pro_only():
 def test_push_notification_sent_to_opponent_on_move():
 ```
 
@@ -158,4 +173,4 @@ Async Duels are the **daily habit anchor**. They are the chess puzzle — the lo
 ## 4. Bidirectional Links
 
 - [features.md → M-05](../features.md)
-- Related specs: [[tdd_spec_eloMatchmaking.md]] (ELO updates), [[tdd_spec_postMatchPipeline.md]] (grading pipeline), [[tdd_spec_intelligentFlashcards.md]] (word injection), [[tdd_spec_gamification.md]] (XP on completion)
+- Related specs: [[tdd_spec_eloMatchmaking.md]] (ELO updates), [[tdd_spec_postMatchPipeline.md]] (grading pipeline), [[tdd_spec_tongPro.md]] (Pro full async grading), [[tdd_spec_computeEconomics.md]] (tier rules), [[tdd_spec_intelligentFlashcards.md]] (word injection), [[tdd_spec_gamification.md]] (XP on completion)

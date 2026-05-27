@@ -8,7 +8,9 @@
 
 | Layer | Technology | Role |
 |-------|-----------|------|
-| ASR | `whisper-large-v3-turbo` | Transcription + word-level timestamp extraction in post-match worker |
+| ASR — lite | `whisper-small` | Free + Plus daily coaching via **faster-whisper** CPU (INT8). Cheapest path. |
+| ASR — Pro | `qwen3-asr-0.6b` + `qwen3-forcedaligner-0.6b` | Pro tier transcription via **vLLM** (not faster-whisper). ForcedAligner provides word-level timestamps for WPM + fillers. Apache 2.0. |
+| ASR — Elite | `whisper-large-v3-turbo` | Elite tier via **faster-whisper GPU**. Single-pass transcript + timestamps. Highest accuracy. |
 | Phoneme Alignment | `wav2vec2` | Maps spoken phonemes to word-level timestamps |
 | Pronunciation Scoring | `SpeechBrain GOP` | Goodness-of-Pronunciation scoring against cached native phoneme references |
 | Formant Analysis | `parselmouth` | F1/F2 vowel formant extraction for accent deviation analysis |
@@ -41,9 +43,13 @@
 
 **Justification:** Native Python, mature, integrates directly with FastAPI. Supports priority queues (required for Tong Pro's priority worker lane in Post-MVP). Tasks: post-match audio processing, slang crawler jobs, TTS synthesis jobs. AWS SQS is a viable production alternative but adds operational overhead at MVP.
 
-### Real-Time Voice Infrastructure: Agora.io RTC SDK
+### Real-Time Voice Infrastructure: Agora.io RTC SDK (MVP) → LiveKit self-host (scale)
 
-**Justification:** Live ranked battles require sub-300ms latency voice calls with global routing, NAT traversal, and connection resilience — all of which raw WebRTC requires significant infrastructure to achieve. Agora's managed global edge network (SD-RTN) handles this. Toxicity moderation can tap Agora's server-side audio stream hooks. `react-native-agora` is the mobile SDK; Agora's server-side API manages channel tokens (preventing unauthorized match joining). Alternative considered: Livekit (open-source, self-hosted) — viable but requires more DevOps at MVP.
+**Justification:** Live ranked battles require sub-300ms latency voice calls with global routing, NAT traversal, and connection resilience. Agora's managed SD-RTN handles this at MVP with 10k free minutes/mo. **Voice transport only** — no Agora Cloud Recording or RTT (moderation and grading use R2 + worker pipeline). `react-native-agora` is the mobile SDK; server-side tokens prevent unauthorized channel join. **Scale path (~50k MAU):** migrate to self-hosted LiveKit when Agora bill consistently exceeds ~$300/mo. See [[specs/tdd_spec_computeEconomics.md]].
+
+### Worker Pipeline Tiering
+
+**Justification:** Compute dominates unit economics. Pipeline tiers (`metadata_only`, `lite`, `full`, `elite`, `elite_phoneme`) map to ASR engine, DeepSeek prompt depth, and optional phoneme stack. Three Celery queues: `standard` (CPU — Free/Plus), `qwen` (GPU/vLLM — Pro), `elite_gpu` (GPU/faster-whisper — Elite). Free: 1 lite/day + metadata-only async. Plus $9.99: ad-free, capped lite coaching. Pro $15.99: unlimited Qwen full pipeline, priority queue. Elite $19.99: Whisper turbo + phoneme, priority queue. Canonical rules: [[specs/tdd_spec_computeEconomics.md]].
 
 ### Authentication: Supabase Auth
 
@@ -67,8 +73,10 @@ API:            FastAPI (Python) + Uvicorn
 Auth:           Supabase Auth (JWT + OAuth)
 Database:       PostgreSQL (+ pgvector extension)
 Cache/Queue:    Redis (Celery broker + session + matchmaking state)
-Workers:        Celery (Python) — Whisper, wav2vec2, SpeechBrain, parselmouth, DeepSeek
-Live Voice:     Agora.io RTC SDK (react-native-agora + Agora server API)
+Workers:        Celery (Python) — faster-whisper (lite+elite), vLLM/Qwen3-ASR (pro), wav2vec2, SpeechBrain, parselmouth, DeepSeek
+                standard queue (CPU/lite) | qwen queue (GPU/pro) | elite_gpu queue (GPU/elite)
+Live Voice:     Agora.io RTC SDK (MVP) → LiveKit self-host (scale)
+Monetization:   Plus $9.99 / Pro $15.99 / Elite $19.99 — see tdd_spec_computeEconomics.md
 TTS:            Fish Audio S2
 LLM:            DeepSeek-V4-Flash
 Storage:        Cloudflare R2

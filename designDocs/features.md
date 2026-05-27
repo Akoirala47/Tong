@@ -2,6 +2,7 @@
 
 > This document is the canonical feature registry. Every feature links to its TDD/Spec file.
 > Categories: **MVP** (essential for first functional release) | **Post-MVP** (future enhancements).
+> Infrastructure & cost tiering: [tdd_spec_computeEconomics.md](./specs/tdd_spec_computeEconomics.md)
 > See [narrative.md](./narrative.md) for the project North Star.
 
 ---
@@ -19,9 +20,9 @@ These features constitute the minimum playable, releasable version of Tong. A us
 | M-05 | Async Audio Duels | Turn-based voice messaging battles with a 12-hour response window; contributes micro-ELO on win | [tdd_spec_asyncAudioDuels.md](./specs/tdd_spec_asyncAudioDuels.md) |
 | M-06 | Live Ranked Voice Battles (Solo Queue) | Real-time 1v1 voice-call battle with skill-based matchmaking; prompted conversational face-off; ELO update on conclusion | [tdd_spec_liveRankedBattles.md](./specs/tdd_spec_liveRankedBattles.md) |
 | M-07 | ELO & Matchmaking System | Hidden MMR + visible rank tier; queue management; opponent pairing algorithm | [tdd_spec_eloMatchmaking.md](./specs/tdd_spec_eloMatchmaking.md) |
-| M-08 | Post-Match Processing Pipeline (Core) | Async audio upload → Whisper transcription → DeepSeek basic grading → ELO delta calculation → feedback delivery; toxicity scan during live match | [tdd_spec_postMatchPipeline.md](./specs/tdd_spec_postMatchPipeline.md) |
+| M-08 | Post-Match Processing Pipeline (Core) | Tiered async pipeline: metadata-only / lite (free daily) / full (Pro) → faster-whisper + DeepSeek → ELO + feedback; see [tdd_spec_computeEconomics.md](./specs/tdd_spec_computeEconomics.md) | [tdd_spec_postMatchPipeline.md](./specs/tdd_spec_postMatchPipeline.md) |
 | M-09 | Gamification & Progression (Core) | XP for all activity types, daily login streaks, rank badges on profile, streak shields | [tdd_spec_gamification.md](./specs/tdd_spec_gamification.md) |
-| M-10 | Toxicity Moderation | Near-real-time STT scan of live audio for slurs/harassment; automated mute + report flagging | [tdd_spec_toxicityModeration.md](./specs/tdd_spec_toxicityModeration.md) |
+| M-10 | Toxicity Moderation | Post-match transcript scan for slurs/harassment; warnings + bans at queue entry (no Agora RTT) | [tdd_spec_toxicityModeration.md](./specs/tdd_spec_toxicityModeration.md) |
 
 ---
 
@@ -37,7 +38,16 @@ These features extend, enrich, and monetize the MVP foundation. They assume all 
 | P-04 | Advanced Phoneme Analysis Pipeline | wav2vec2 phoneme alignment → SpeechBrain GOP pronunciation scoring → parselmouth F1/F2 formant analysis on flagged vowels | [tdd_spec_phonemeAnalysis.md](./specs/tdd_spec_phonemeAnalysis.md) |
 | P-05 | Squad Queues (Duo / Trio / Quad) | Party matchmaking for 2v2, 3v3, 4v4 multi-player conversational skirmishes | [tdd_spec_squadQueues.md](./specs/tdd_spec_squadQueues.md) |
 | P-06 | Dynamic Leaderboards | Weekly and all-time boards segmented by Solo XP and Ranked ELO; global, regional, and friends filters | [tdd_spec_leaderboards.md](./specs/tdd_spec_leaderboards.md) |
-| P-07 | Tong Pro Monetization | Subscription tier: uncapped VOD review, priority worker queue, linguistic analytics dashboard; Free tier caps enforced | [tdd_spec_tongPro.md](./specs/tdd_spec_tongPro.md) |
+| P-07 | Tong Subscription Tiers | Three paid tiers — Plus ($9.99), Pro ($15.99), Elite ($19.99) — gating ASR depth, async duel caps, phoneme analysis, and analytics; free tier caps enforced server-side | [tdd_spec_tongPro.md](./specs/tdd_spec_tongPro.md) |
+| P-11 | In-App Advertising | Ad-supported free tier: post-result ads after every match/duel + every 2 Solo Grind lessons; all paid tiers are ad-free | [tdd_spec_tongPro.md](./specs/tdd_spec_tongPro.md) |
 | P-08 | Linguistic Analytics Dashboard | Long-term trend charts for WPM, F1/F2 formant accuracy, phoneme heatmaps, custom LLM remedial tracks (Pro only) | [tdd_spec_linguisticAnalytics.md](./specs/tdd_spec_linguisticAnalytics.md) |
 | P-09 | Priority Worker Queue | Dedicated high-throughput processing lanes for Pro users; SLA-backed turnaround time | [tdd_spec_priorityQueue.md](./specs/tdd_spec_priorityQueue.md) |
 | P-10 | Audio CDN Caching System | Globally cache Fish Audio S2 synthesized audio at CDN/edge so common terms incur synthesis cost only once | [tdd_spec_audioCDN.md](./specs/tdd_spec_audioCDN.md) |
+
+---
+
+## Infrastructure Reference
+
+| Doc | Purpose |
+|-----|---------|
+| [tdd_spec_computeEconomics.md](./specs/tdd_spec_computeEconomics.md) | Pipeline tiers (metadata_only/lite/full/elite), ASR engines (whisper-small/Qwen3/whisper-turbo), 3 worker pools, subscription pricing, break-even assumptions |

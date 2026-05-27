@@ -84,9 +84,9 @@ CREATE TABLE squad_matches (
 | GET | `/squad-matches/{match_id}` | Bearer | Get squad match details |
 
 ### Agora Multi-Party Channel
-- All members of both parties join the same Agora channel
+- All members of both parties join the same Agora channel (**voice transport only** — same as M-06; no cloud recording)
 - Server mutes all players until both parties tap Ready
-- After match: each player's audio track is recorded separately for individual post-match analysis
+- After match: each player's audio uploads to R2 for tiered post-match analysis (see [[tdd_spec_computeEconomics.md]])
 - ELO is calculated per-player, not per-party (win/loss is team-level; ELO delta is individual)
 
 ---

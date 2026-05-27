@@ -8,7 +8,7 @@
 ## 1. Technical Specification
 
 ### Overview
-A Pro-exclusive dashboard surfacing long-term trends in language performance: WPM progression, phoneme accuracy over time, F1/F2 formant convergence toward native targets, custom LLM-generated remedial tracks, and vocabulary growth curves. Data is aggregated from the post-match pipeline (M-08) and phoneme analysis (P-04).
+A Pro/Elite-exclusive dashboard surfacing long-term trends in language performance: WPM progression, phoneme accuracy over time, F1/F2 formant convergence toward native targets, custom LLM-generated remedial tracks, and vocabulary growth curves. Data is aggregated from the post-match pipeline (M-08) and on-demand phoneme analysis (P-04). WPM trends available for Pro+Elite; phoneme heatmaps depend on `elite_phoneme` jobs (Elite only) — data may be sparser than WPM trends. Full dashboard (all modules) requires Elite; Pro gets WPM trends only.
 
 ### Dashboard Modules
 
