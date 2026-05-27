@@ -1,0 +1,142 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <title>Tong — Wireframes & User Flow</title>
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <style>
+    html, body { margin: 0; padding: 0; background: #f0eee9; }
+    * { box-sizing: border-box; }
+  </style>
+  <script src="https://unpkg.com/react@18.3.1/umd/react.development.js" integrity="sha384-hD6/rw4ppMLGNu3tX5cjIb+uRZ7UkRJ6BPkLpg4hAu/6onKUg4lLsHAs9EBPT82L" crossorigin="anonymous"></script>
+  <script src="https://unpkg.com/react-dom@18.3.1/umd/react-dom.development.js" integrity="sha384-u6aeetuaXnQ38mYT8rp6sbXaQe3NL9t+IBXmnYxwkUI2Hw4bsp2Wvmx4yRQF1uAm" crossorigin="anonymous"></script>
+  <script src="https://unpkg.com/@babel/standalone@7.29.0/babel.min.js" integrity="sha384-m08KidiNqLdpJqLq95G/LEi8Qvjl/xUYll3QILypMoQ65QorJ9Lvtp2RXYGBFj1y" crossorigin="anonymous"></script>
+
+  <script type="text/babel" src="lib/wf.jsx"></script>
+  <script type="text/babel" src="lib/design-canvas.jsx"></script>
+
+  <script type="text/babel" src="wireframes/flow.jsx"></script>
+  <script type="text/babel" src="wireframes/auth.jsx"></script>
+  <script type="text/babel" src="wireframes/home.jsx"></script>
+  <script type="text/babel" src="wireframes/solo.jsx"></script>
+  <script type="text/babel" src="wireframes/duels.jsx"></script>
+  <script type="text/babel" src="wireframes/live.jsx"></script>
+  <script type="text/babel" src="wireframes/postmatch.jsx"></script>
+  <script type="text/babel" src="wireframes/profile.jsx"></script>
+  <script type="text/babel" src="wireframes/states.jsx"></script>
+</head>
+<body>
+<div id="root"></div>
+
+<script type="text/babel" data-presets="env,react">
+  const { useState } = React;
+
+  function App() {
+    // Phone artboard dims — phones are 320×640, leave room for header label
+    const PW = 320, PH = 690;
+    // Big screens (flow diagram, callouts)
+    return (
+      <DesignCanvas>
+        {/* ──────────── 00 · Master User Flow ──────────── */}
+        <DCSection id="flow" title="00 — Master User Flow" subtitle="One map · all journeys · cluster outlines + annotated edges">
+          <DCArtboard id="flow" label="Master flow diagram" width={1680} height={1080}>
+            <MasterFlow />
+          </DCArtboard>
+        </DCSection>
+
+        {/* ──────────── 01 · Auth & Onboarding ──────────── */}
+        <DCSection id="auth" title="01 — Auth & Onboarding" subtitle="splash → sign-up/login → language → placement → permissions">
+          <DCArtboard id="a-splash"    label="01 · Splash"          width={PW} height={PH}><S_Splash /></DCArtboard>
+          <DCArtboard id="a-signup-a"  label="02a · Sign-Up (form)"     width={PW} height={PH}><S_SignupA /></DCArtboard>
+          <DCArtboard id="a-signup-b"  label="02b · Sign-Up (OAuth)"    width={PW} height={PH}><S_SignupB /></DCArtboard>
+          <DCArtboard id="a-login"     label="03 · Log-In"          width={PW} height={PH}><S_Login /></DCArtboard>
+          <DCArtboard id="a-lang"      label="04 · Pick Language"   width={PW} height={PH}><S_LangPick /></DCArtboard>
+          <DCArtboard id="a-place-a"   label="05a · Placement (quiz)"   width={PW} height={PH}><S_PlacementA /></DCArtboard>
+          <DCArtboard id="a-place-b"   label="05b · Placement (self-rate)" width={PW} height={PH}><S_PlacementB /></DCArtboard>
+          <DCArtboard id="a-perms"     label="06 · Permissions"     width={PW} height={PH}><S_Perms /></DCArtboard>
+        </DCSection>
+
+        {/* ──────────── 02 · Home / Play Hub ──────────── */}
+        <DCSection id="home" title="02 — Home / Play Hub" subtitle="3 variations · stacked tiles · hero-CTA · feed-first (experimental)">
+          <DCArtboard id="h-a" label="07a · Home · stacked tiles" width={PW} height={PH}><S_HomeA /></DCArtboard>
+          <DCArtboard id="h-b" label="07b · Home · hero CTA"      width={PW} height={PH}><S_HomeB /></DCArtboard>
+          <DCArtboard id="h-c" label="07c · Home · feed-first"    width={PW} height={PH}><S_HomeC /></DCArtboard>
+        </DCSection>
+
+        {/* ──────────── 03 · Solo Grind ──────────── */}
+        <DCSection id="solo" title="03 — Solo Grind (PvE)" subtitle="tier map → lesson → 3 card types → feedback → summary → flashcards → boss">
+          <DCArtboard id="s-tier-a"  label="08a · Tier Map · vertical"  width={PW} height={PH}><S_TierMapA /></DCArtboard>
+          <DCArtboard id="s-tier-b"  label="08b · Tier Map · skill-tree" width={PW} height={PH}><S_TierMapB /></DCArtboard>
+          <DCArtboard id="s-intro"   label="09 · Lesson Intro"          width={PW} height={PH}><S_LessonIntro /></DCArtboard>
+          <DCArtboard id="s-card-tr" label="10a · Card · Translate"     width={PW} height={PH}><S_CardTranslate /></DCArtboard>
+          <DCArtboard id="s-card-au" label="10b · Card · Audio match"   width={PW} height={PH}><S_CardAudio /></DCArtboard>
+          <DCArtboard id="s-card-sp" label="10c · Card · Speak"         width={PW} height={PH}><S_CardSpeak /></DCArtboard>
+          <DCArtboard id="s-cfb"     label="11 · Card · Wrong + inject" width={PW} height={PH}><S_CardFeedback /></DCArtboard>
+          <DCArtboard id="s-sum"     label="12 · Lesson Summary"        width={PW} height={PH}><S_LessonSummary /></DCArtboard>
+          <DCArtboard id="s-flash"   label="13 · Flashcards · swipe"    width={PW} height={PH}><S_Flashcards /></DCArtboard>
+        </DCSection>
+
+        {/* ──────────── 04 · Boss Battles ──────────── */}
+        <DCSection id="boss" title="04 — Boss Battles" subtitle="rank-up assessments · gate progression · ≥80% to break tier">
+          <DCArtboard id="b-entry"  label="14 · Boss · Entry"  width={PW} height={PH}><S_BossEntry /></DCArtboard>
+          <DCArtboard id="b-play"   label="15 · Boss · Active" width={PW} height={PH}><S_BossPlay /></DCArtboard>
+          <DCArtboard id="b-result" label="16 · Boss · Promoted" width={PW} height={PH}><S_BossResult /></DCArtboard>
+        </DCSection>
+
+        {/* ──────────── 05 · Async Duels ──────────── */}
+        <DCSection id="duels" title="05 — Async Audio Duels" subtitle="chess-puzzle pace · 3 rounds × 12h windows · forfeit on expiry">
+          <DCArtboard id="d-list-a" label="17a · Active Duels · list" width={PW} height={PH}><S_DuelsListA /></DCArtboard>
+          <DCArtboard id="d-list-b" label="17b · Active Duels · grid (alt)" width={PW} height={PH}><S_DuelsListB /></DCArtboard>
+          <DCArtboard id="d-listen" label="18 · Duel · Listen"        width={PW} height={PH}><S_DuelListen /></DCArtboard>
+          <DCArtboard id="d-rec"    label="19a · Duel · Recording"    width={PW} height={PH}><S_DuelRecord /></DCArtboard>
+          <DCArtboard id="d-prev"   label="19b · Duel · Preview & Send" width={PW} height={PH}><S_DuelPreview /></DCArtboard>
+          <DCArtboard id="d-res"    label="20 · Duel · Result"        width={PW} height={PH}><S_DuelResult /></DCArtboard>
+        </DCSection>
+
+        {/* ──────────── 06 · Live Ranked Battles ──────────── */}
+        <DCSection id="live" title="06 — Live Ranked Battles (PvP)" subtitle="queue → matchmaking → lobby (prompt reveal) → live → conclude → processing">
+          <DCArtboard id="l-q-a"   label="21a · Queue · classic"  width={PW} height={PH}><S_QueueA /></DCArtboard>
+          <DCArtboard id="l-q-b"   label="21b · Queue · one-tap (alt)" width={PW} height={PH}><S_QueueB /></DCArtboard>
+          <DCArtboard id="l-mm"    label="22 · Matchmaking…"      width={PW} height={PH}><S_Matchmaking /></DCArtboard>
+          <DCArtboard id="l-lobby" label="23 · Match Lobby"       width={PW} height={PH}><S_Lobby /></DCArtboard>
+          <DCArtboard id="l-batt-a" label="24a · Live · focused HUD" width={PW} height={PH}><S_LiveBattle /></DCArtboard>
+          <DCArtboard id="l-batt-b" label="24b · Live · arena HUD (alt)" width={PW} height={PH}><S_LiveBattleB /></DCArtboard>
+          <DCArtboard id="l-proc"  label="25 · Processing…"       width={PW} height={PH}><S_Processing /></DCArtboard>
+        </DCSection>
+
+        {/* ──────────── 07 · Post-Match VOD ──────────── */}
+        <DCSection id="vod" title="07 — Post-Match VOD Review" subtitle="result reveal → scrubbable transcript → flashcard injection · tiered paywall path">
+          <DCArtboard id="v-res"  label="26 · Match Result"            width={PW} height={PH}><S_MatchResult /></DCArtboard>
+          <DCArtboard id="v-vod"  label="27a · VOD · transcript"       width={PW} height={PH}><S_VODReview /></DCArtboard>
+          <DCArtboard id="v-pay"  label="27b · VOD · paywall (free)"   width={PW} height={PH}><S_VODPaywall /></DCArtboard>
+        </DCSection>
+
+        {/* ──────────── 08 · Profile / Leaderboards ──────────── */}
+        <DCSection id="profile" title="08 — Profile · Leaderboards · Subscription · Settings" subtitle="account surface · esports-style profile chrome">
+          <DCArtboard id="p-prof"  label="28 · Profile"          width={PW} height={PH}><S_Profile /></DCArtboard>
+          <DCArtboard id="p-lead"  label="29 · Leaderboards"     width={PW} height={PH}><S_Leaderboard /></DCArtboard>
+          <DCArtboard id="p-sub"   label="30 · Subscription"     width={PW} height={PH}><S_Subscription /></DCArtboard>
+          <DCArtboard id="p-set"   label="31 · Settings"         width={PW} height={PH}><S_Settings /></DCArtboard>
+        </DCSection>
+
+        {/* ──────────── 09 · Edge / Empty / Error States ──────────── */}
+        <DCSection id="states" title="09 — Edge / Empty / Loading / Error" subtitle="the unhappy paths · engineering-critical · covers all M-05 / M-06 / M-10 failure modes">
+          <DCArtboard id="e-noduels"  label="E1 · Empty · no duels"        width={PW} height={PH}><E_NoDuels /></DCArtboard>
+          <DCArtboard id="e-nocards"  label="E2 · Empty · flashcards clear" width={PW} height={PH}><E_NoFlashcards /></DCArtboard>
+          <DCArtboard id="e-load"     label="E3 · Loading · skeleton"      width={PW} height={PH}><E_LoadingHome /></DCArtboard>
+          <DCArtboard id="e-nomatch"  label="E4 · No-match timeout"        width={PW} height={PH}><E_NoMatch /></DCArtboard>
+          <DCArtboard id="e-disc"     label="E5 · Mid-match disconnect"    width={PW} height={PH}><E_Disconnect /></DCArtboard>
+          <DCArtboard id="e-mic"      label="E6 · Mic permission denied"   width={PW} height={PH}><E_MicBlocked /></DCArtboard>
+          <DCArtboard id="e-cap"      label="E7 · Free duel cap 3/3"       width={PW} height={PH}><E_DuelCap /></DCArtboard>
+          <DCArtboard id="e-grade"    label="E8 · Grading degraded"        width={PW} height={PH}><E_GradingFailed /></DCArtboard>
+          <DCArtboard id="e-tox"      label="E9 · Toxicity warning"        width={PW} height={PH}><E_Toxicity /></DCArtboard>
+          <DCArtboard id="e-ad"       label="E10 · Ad interstitial (free)" width={PW} height={PH}><E_AdInterstitial /></DCArtboard>
+        </DCSection>
+      </DesignCanvas>
+    );
+  }
+
+  ReactDOM.createRoot(document.getElementById('root')).render(<App />);
+</script>
+</body>
+</html>
